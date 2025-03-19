@@ -221,11 +221,13 @@ func (bc *BrokerChannel) Negotiate(offer *webrtc.SessionDescription) (*webrtc.Se
 	if resp.Error != "" {
 		return nil, errors.New(resp.Error)
 	}
+
+	// Original Implementation: return deserialized data
+	// Modification: use deserialized data to find IP address of proxy
+
 	// Deserialize the WebRTC session description
 	answer, err := util.DeserializeSessionDescription(resp.Answer)
 	if err == nil {
-		fmt.Printf("Raw Answer: %+v\n", answer)
-
 		ip := extractIP(answer.SDP)
 		if ip == "" {
 			fmt.Println("No IP address found in answer.")
@@ -233,9 +235,9 @@ func (bc *BrokerChannel) Negotiate(offer *webrtc.SessionDescription) (*webrtc.Se
 			fmt.Println("Extracted IP Successfully")
 
 			asn := getASN(ip)
-			fmt.Printf("ASN: %s\n", asn) //
+			fmt.Printf("ASN: %s\n", asn)
 
-			logASN(ip, asn)
+			logASN(ip, asn) // performs IP hashing
 		}
 	}
 
