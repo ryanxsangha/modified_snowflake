@@ -232,10 +232,10 @@ func (bc *BrokerChannel) Negotiate(offer *webrtc.SessionDescription) (*webrtc.Se
 		} else {
 			fmt.Println("Extracted IP Successfully")
 
-			asn, subnet := getASN(ip)
-			fmt.Printf("ASN: %s (Subnet: %s)\n", asn, subnet) //
+			asn := getASN(ip)
+			fmt.Printf("ASN: %s\n", asn) //
 
-			logASN(ip, asn, subnet)
+			logASN(ip, asn)
 		}
 	}
 
@@ -260,10 +260,10 @@ func extractIP(sdp string) string {
 }
 
 // Lookup ASN using Radix Tree (Longest Prefix Match)
-func getASN(ip string) (string, string) {
+func getASN(ip string) string {
 	parsedIP := net.ParseIP(ip)
 	if parsedIP == nil {
-		return "Invalid IP", ""
+		return "ASN not found"
 	}
 
 	asnDataLock.Lock()
@@ -278,16 +278,17 @@ func getASN(ip string) (string, string) {
 
 	entries, err := tree.ContainingNetworks(parsedIP)
 	if err != nil || len(entries) == 0 {
-		return "ASN not found", ""
+		return "ASN not found"
 	}
 
 	// Select the longest matching prefix
 	longestEntry := entries[0].(asnEntry)
-	return longestEntry.asn, longestEntry.cidr.String()
+	return longestEntry.asn
 }
 
 // Log hashed IP and ASN pairs with a counter for repeated occurrences
-func logASN(ip, asn, subnet string) {
+// Log hashed IP and ASN pairs with a counter for repeated occurrences
+func logASN(ip, asn string) {
 	hashedIP := hashIP(ip)
 
 	// Read existing log file to check for duplicate entries
@@ -298,7 +299,7 @@ func logASN(ip, asn, subnet string) {
 		for scanner.Scan() {
 			line := scanner.Text()
 			// Match the hashed IP and ASN
-			re := regexp.MustCompile(`Hashed IP: ([a-f0-9]+) - ASN: (\d+) \(Subnet: [^)]*\) - Count: (\d+)`)
+			re := regexp.MustCompile(`Hashed IP: ([a-f0-9]+) - ASN: (\d+) - Count: (\d+)`)
 			matches := re.FindStringSubmatch(line)
 			if len(matches) == 4 {
 				existingHashedIP := matches[1]
@@ -331,14 +332,14 @@ func logASN(ip, asn, subnet string) {
 		line := scanner.Text()
 		if strings.Contains(line, key) {
 			// Update the count for the existing entry
-			line = fmt.Sprintf("Hashed IP: %s - ASN: %s (Subnet: %s) - Count: %d", hashedIP, asn, subnet, newCount)
+			line = fmt.Sprintf("Hashed IP: %s - ASN: %s - Count: %d", hashedIP, asn, newCount)
 		}
 		lines = append(lines, line)
 	}
 
 	// If it's a new entry, add it
 	if _, exists := existingEntries[key]; !exists {
-		lines = append(lines, fmt.Sprintf("Hashed IP: %s - ASN: %s (Subnet: %s) - Count: %d", hashedIP, asn, subnet, 1))
+		lines = append(lines, fmt.Sprintf("Hashed IP: %s - ASN: %s - Count: %d", hashedIP, asn, 1))
 	}
 
 	// Rewrite the log file with updated data
