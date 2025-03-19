@@ -60,16 +60,18 @@ type BrokerChannel struct {
 	BridgeFingerprint  string
 }
 
-// Path to locally stored CAIDA dataset
+// Paths to locally stored CAIDA datasets
 const (
-	caidaLocalFile = `C:\Users\Ryan\Desktop\routeviews-rv2-20250310-1200.pfx2as`
-	logFilePath    = "proxy_ASNs.log"
+	caidaIPv4File = `C:\Users\Ryan\Desktop\routeviews-rv2-20250310-1200.pfx2as`
+	caidaIPv6File = `C:\Users\Ryan\Desktop\routeviews-rv6-20250312-1200.pfx2as`
+	logFilePath   = "proxy_ASNs.log"
 )
 
 // Global Data Structures
 var (
 	asnDataLock sync.Mutex
-	radixTree   cidranger.Ranger // Radix Tree for fast lookups
+	radixTreeV4 cidranger.Ranger // Radix Tree for IPv4
+	radixTreeV6 cidranger.Ranger // Radix Tree for IPv6
 )
 
 // ASN Entry Struct
@@ -83,12 +85,19 @@ func (e asnEntry) Network() net.IPNet {
 	return e.cidr
 }
 
-// Create the Radix Tree (CIDR Ranger)
+// Create IPv4 and IPv6 Radix Trees (CIDR Ranger)
 func init() {
-	radixTree = cidranger.NewPCTrieRanger()
-	err := loadCAIDAData()
-	if err != nil {
-		fmt.Println("Error loading CAIDA data:", err)
+	radixTreeV4 = cidranger.NewPCTrieRanger()
+	radixTreeV6 = cidranger.NewPCTrieRanger()
+
+	errV4 := loadCAIDAData(caidaIPv4File, radixTreeV4)
+	errV6 := loadCAIDAData(caidaIPv6File, radixTreeV6)
+
+	if errV4 != nil {
+		fmt.Println("Error loading IPv4 CAIDA data:", errV4)
+	}
+	if errV6 != nil {
+		fmt.Println("Error loading IPv6 CAIDA data:", errV6)
 	}
 }
 
@@ -221,11 +230,10 @@ func (bc *BrokerChannel) Negotiate(offer *webrtc.SessionDescription) (*webrtc.Se
 		if ip == "" {
 			fmt.Println("No IP address found in answer.")
 		} else {
-			//fmt.Println("Extracted IP:", ip)
-			fmt.Println("Extracted IP")
+			fmt.Println("Extracted IP Successfully")
 
 			asn, subnet := getASN(ip)
-			fmt.Printf("ASN: %s (Subnet: %s)\n", asn, subnet)
+			fmt.Printf("ASN: %s (Subnet: %s)\n", asn, subnet) //
 
 			logASN(ip, asn, subnet)
 		}
@@ -261,7 +269,14 @@ func getASN(ip string) (string, string) {
 	asnDataLock.Lock()
 	defer asnDataLock.Unlock()
 
-	entries, err := radixTree.ContainingNetworks(parsedIP)
+	var tree cidranger.Ranger
+	if parsedIP.To4() != nil {
+		tree = radixTreeV4 // IPv4 lookup
+	} else {
+		tree = radixTreeV6 // IPv6 lookup
+	}
+
+	entries, err := tree.ContainingNetworks(parsedIP)
 	if err != nil || len(entries) == 0 {
 		return "ASN not found", ""
 	}
@@ -289,7 +304,6 @@ func logASN(ip, asn, subnet string) {
 				existingHashedIP := matches[1]
 				existingASN := matches[2]
 				count, _ := strconv.Atoi(matches[3])
-				// If entry exists, increment counter
 				if existingHashedIP == hashedIP && existingASN == asn {
 					existingEntries[hashedIP+"-"+asn] = count
 				}
@@ -336,8 +350,8 @@ func logASN(ip, asn, subnet string) {
 }
 
 // Load CAIDA IP Prefix to ASN Data into the Radix Tree
-func loadCAIDAData() error {
-	file, err := os.Open(caidaLocalFile)
+func loadCAIDAData(filePath string, tree cidranger.Ranger) error {
+	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("error opening CAIDA dataset: %v", err)
 	}
@@ -349,7 +363,7 @@ func loadCAIDAData() error {
 	for reader.Scan() {
 		line := strings.Fields(reader.Text())
 		if len(line) < 3 {
-			continue // Ensure 3 cols for Prefix, Mask, and ASN exist
+			continue // Ensure we have at least 3 columns: Prefix, Mask, ASN
 		}
 
 		prefix := strings.TrimSpace(line[0])
@@ -365,9 +379,9 @@ func loadCAIDAData() error {
 			continue
 		}
 
-		// Create entry using a value instead of a pointer
+		// Store entry in the appropriate tree
 		entry := asnEntry{cidr: *network, asn: asn}
-		radixTree.Insert(entry) // Store the struct inside the radix tree
+		tree.Insert(entry)
 		count++
 	}
 
@@ -375,7 +389,7 @@ func loadCAIDAData() error {
 		return fmt.Errorf("error reading CAIDA dataset: %v", err)
 	}
 
-	fmt.Printf("CAIDA IP-to-ASN data loaded. Total prefixes: %d\n", count)
+	fmt.Printf("CAIDA IP-to-ASN data loaded from %s. Total prefixes: %d\n", filePath, count)
 	return nil
 }
 
