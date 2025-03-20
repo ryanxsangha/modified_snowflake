@@ -181,6 +181,8 @@ func newBrokerChannelFromConfig(config ClientConfig) (*BrokerChannel, error) {
 // Negotiate uses a RendezvousMethod to send the client's WebRTC SDP offer
 // and receive a snowflake proxy WebRTC SDP answer in return.
 func (bc *BrokerChannel) Negotiate(offer *webrtc.SessionDescription) (*webrtc.SessionDescription, error) {
+	fmt.Println("Entering Negotiate() function...") // Debugging Log
+
 	if !bc.keepLocalAddresses {
 		offer = &webrtc.SessionDescription{
 			Type: offer.Type,
@@ -206,12 +208,16 @@ func (bc *BrokerChannel) Negotiate(offer *webrtc.SessionDescription) (*webrtc.Se
 		return nil, err
 	}
 
+	fmt.Println("Sending request to broker...") // Debugging Log
+
 	// Do the exchange using our RendezvousMethod.
 	encResp, err := bc.Rendezvous.Exchange(encReq)
 	if err != nil {
 		return nil, err
 	}
 	log.Printf("Received answer: %s", string(encResp))
+
+	fmt.Println("Sending request to broker...") // Debugging Log
 
 	// Decode the client poll response.
 	resp, err := messages.DecodeClientPollResponse(encResp)
@@ -238,6 +244,10 @@ func (bc *BrokerChannel) Negotiate(offer *webrtc.SessionDescription) (*webrtc.Se
 			fmt.Printf("ASN: %s\n", asn)
 
 			logASN(ip, asn) // performs IP hashing
+			ip = ""
+
+			// Return an Error to indicate end of program
+			//return nil, fmt.Errorf("- snowflake process stopped after logging ip")
 		}
 	}
 
@@ -264,6 +274,7 @@ func extractIP(sdp string) string {
 // Lookup ASN using Radix Tree (Longest Prefix Match)
 func getASN(ip string) string {
 	parsedIP := net.ParseIP(ip)
+	ip = ""
 	if parsedIP == nil {
 		return "ASN not found"
 	}
@@ -282,6 +293,7 @@ func getASN(ip string) string {
 	if err != nil || len(entries) == 0 {
 		return "ASN not found"
 	}
+	parsedIP = nil
 
 	// Select the longest matching prefix
 	longestEntry := entries[0].(asnEntry)
@@ -289,9 +301,9 @@ func getASN(ip string) string {
 }
 
 // Log hashed IP and ASN pairs with a counter for repeated occurrences
-// Log hashed IP and ASN pairs with a counter for repeated occurrences
 func logASN(ip, asn string) {
 	hashedIP := hashIP(ip)
+	ip = ""
 
 	// Read existing log file to check for duplicate entries
 	existingEntries := make(map[string]int)
